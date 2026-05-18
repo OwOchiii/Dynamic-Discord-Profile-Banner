@@ -1,8 +1,9 @@
-from flask import Flask, request, Response, abort, redirect
+from flask import Flask, request, Response, abort, redirect, send_from_directory
 from os.path import dirname, join, isdir, exists
 import requests
 import base64
 from time import time
+import html
 
 import discord_fetch_info
 
@@ -27,7 +28,7 @@ def add_cors_headers(response):
 
 @app.route("/assets/<path:path>")
 def assets(path):
-    response = Response(getFile(join(directory, "assets", path)))
+    response = send_from_directory(join(directory, "assets"), path)
     response = add_cors_headers(response)
     return response
 
@@ -48,7 +49,8 @@ showHandle: determines if the returned svg should show the user's handle
 def getUserByID(userID):
     user = discord_fetch_info.get_user_data(userID)
     if type(user) == dict:
-        return f'<svg width="340" height="120" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><text x="0" y="16">{user["error"]["text"]}</text></svg>', 400
+        error_text = html.escape(user["error"]["text"])
+        return f'<svg width="340" height="120" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><text x="0" y="16">{error_text}</text></svg>', 400
 
     if request.args.get("showBadges") == "false":
         tags = []
@@ -60,12 +62,12 @@ def getUserByID(userID):
 
     text = getFile("template.svg", mode="r")
     text = text.replace("{{BASE64_ENCODED_PFP}}", base64_decoded)
-    text = text.replace("{{DISCORD_DISPLAY_NAME}}", user.displayname)
+    text = text.replace("{{DISCORD_DISPLAY_NAME}}", html.escape(user.displayname))
 
-    if request.args.get("showHandle") != "false": text = text.replace("{{DISCORD_USERNAME}}", user.username)
+    if request.args.get("showHandle") != "false": text = text.replace("{{DISCORD_USERNAME}}", html.escape(user.username))
     else: text = text.replace("{{DISCORD_USERNAME}}", "")
 
-    if request.args.get("showID") != "false": text = text.replace("{{DISCORD_ID}}", user.id)
+    if request.args.get("showID") != "false": text = text.replace("{{DISCORD_ID}}", html.escape(str(user.id)))
     else: text = text.replace("{{DISCORD_ID}}", "")
 
     if user.banner is None or request.args.get("showBanner") == "false":
