@@ -1,13 +1,18 @@
 import requests
 from time import time, sleep
 from os.path import dirname, join
+import os
 import traceback
 
 directory = dirname(__file__)
 
-f = open(join(directory, "token.txt"), "r")
-DISCORD_BOT_TOKEN = f.read().strip()
-f.close()
+DISCORD_BOT_TOKEN = os.environ.get("DISCORD_BOT_TOKEN")
+if not DISCORD_BOT_TOKEN:
+    try:
+        with open(join(directory, "token.txt"), "r") as f:
+            DISCORD_BOT_TOKEN = f.read().strip()
+    except FileNotFoundError:
+        DISCORD_BOT_TOKEN = "NO_TOKEN_FOUND"
 
 def send_user_info_request(userID):
     r = requests.get(f"https://discord.com/api/v9/users/{userID}", headers={
@@ -42,15 +47,38 @@ def send_user_info_request(userID):
         
         return { "error": { "text": "Unknown error", "code": r.status_code } }
     
+    # Fetch Lanyard info for presence
+    try:
+        lr = requests.get(f"https://api.lanyard.rest/v1/users/{userID}", timeout=3)
+        if lr.status_code == 200:
+            lanyard_data = lr.json().get("data", {})
+            jsonDecoded["lanyard"] = lanyard_data
+    except:
+        pass
+    
     return jsonDecoded
 
 class cache:
     # cache_time = 60 * 60 # 1 hour
     cache_time = 60 * 60 * 24 # 1 day
     local_cache = {}
+    MAX_SIZE = 1000
 
     def add_to_cache(userID, value):
         userID = str(userID)
+        
+        # Prevent Denial of Service (Memory Leak) by bounding the cache
+        if len(cache.local_cache) >= cache.MAX_SIZE:
+            # Clear out expired entries first
+            current = time()
+            expired_keys = [k for k, v in cache.local_cache.items() if v.expires_at < current]
+            for k in expired_keys:
+                del cache.local_cache[k]
+                
+            # If still too large, just wipe a chunk recursively or clear entirely
+            if len(cache.local_cache) >= cache.MAX_SIZE:
+                 cache.local_cache.clear()
+                 
         value.expires_at = time() + cache.cache_time
         # value.expires_at = time() + 1
         cache.local_cache[userID] = value
@@ -88,6 +116,17 @@ class discord_user:
         self.banner = user_object["banner"]
         self.public_flags = user_object["public_flags"]
         self.isBot = "bot" in user_object and user_object["bot"]
+
+        lanyard_data = user_object.get("lanyard", {})
+        self.status = lanyard_data.get("discord_status", "offline")
+        self.custom_status = None
+        self.custom_status_emoji = None
+
+        for activity in lanyard_data.get("activities", []):
+            if activity.get("type") == 4:
+                self.custom_status = activity.get("state")
+                self.custom_status_emoji = activity.get("emoji")
+                break
     
     def add_to_cache(self):
         cache.add_to_cache(self.id, self)
